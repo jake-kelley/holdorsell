@@ -92,6 +92,34 @@ Object.values(inputs).forEach((input) => {
   }
 });
 
+// Mobile tooltip: show label's title on focus (touch devices don't have hover)
+const mobileTooltip = document.getElementById('mobileTooltip');
+
+function showMobileTooltip(event) {
+  const input = event.target;
+  const label = document.querySelector(`label[for="${input.id}"]`);
+  const tooltipText = label ? label.getAttribute('title') : null;
+  
+  if (tooltipText && mobileTooltip) {
+    mobileTooltip.textContent = tooltipText;
+    mobileTooltip.classList.add('active');
+  }
+}
+
+function hideMobileTooltip() {
+  if (mobileTooltip) {
+    mobileTooltip.classList.remove('active');
+  }
+}
+
+// Attach focus/blur listeners to all inputs for mobile tooltip
+Object.values(inputs).forEach((input) => {
+  if (input) {
+    input.addEventListener('focus', showMobileTooltip);
+    input.addEventListener('blur', hideMobileTooltip);
+  }
+});
+
 /**
  * Calculate remaining loan balance after N months using amortization formula
  * @param {number} principal - Original loan amount

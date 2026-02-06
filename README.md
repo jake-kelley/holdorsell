@@ -1,6 +1,6 @@
 # Rent vs Sell Calculator
 
-A simple, accurate tool to compare the financial outcomes of renting vs selling your property.
+A client-side tool to compare the financial outcomes of renting your property vs selling it today.
 
 ## Quick Start
 
@@ -8,60 +8,63 @@ Open `index.html` in your browser. No build step or server required.
 
 ## Features
 
-- **Dynamic Updates**: All values recalculate instantly as you change inputs
-- **Amortization**: Accurate loan balance calculation using standard amortization formula
-- **Capital Gains**: Handles primary residence exemption ($500k MFJ) for first 3 years
-- **Opportunity Cost**: Shows what you're losing if rental cash flow is negative
-- **Visual Chart**: Compare scenarios over time with Chart.js visualization
-- **Detailed Breakdown**: Year-by-year analysis of all values
-- **Input Validation**: All inputs are silently clamped to sensible ranges
-- **URL Persistence**: All inputs are saved to URL parameters — bookmark or share to restore your scenario
+- **Instant Recalculation**: All values update as you type (debounced for performance)
+- **Accurate Amortization**: Standard formula for loan balance at any point in time
+- **Capital Gains Tax**: Handles primary residence exemption ($500k MFJ cap) for first 3 years
+- **Cost Inflation**: Property taxes, insurance, HOA, and maintenance inflate annually while P&I stays fixed
+- **Visual Chart**: Compare scenarios over time with Chart.js
+- **Responsive Layout**: Two-column desktop view with summary sidebar; stacks on mobile
+- **Mobile Tooltips**: Tap any input to see help text (since hover doesn't work on touch)
+- **URL Persistence**: Bookmark or share your exact scenario via URL parameters
+- **Input Validation**: Values are silently clamped to sensible ranges
 
 ## Inputs
 
 | Input | Description |
 |-------|-------------|
-| Purchase Price | Original purchase price (basis for capital gains) |
+| Original Purchase Price | What you paid (basis for capital gains) |
+| Current Est. Home Value | Today's market value (Year 0 basis) |
 | Loan Origination Date | When the mortgage started |
 | Original Loan Amount | Initial loan principal |
-| Interest Rate | Annual interest rate |
-| Monthly P&I | Principal + Interest payment |
-| Monthly HOA | Homeowners association fee |
-| Monthly Taxes | Property taxes |
-| Monthly Insurance | Homeowners insurance |
-| Monthly Maintenance | Reserve for repairs/maintenance |
-| Rental Price | Expected monthly rent |
-| Annual Rent Increase | Expected yearly rent increase % |
-| Property Management Fee | % of rent for property manager |
-| Rental Tax Rate | Your marginal tax rate on rental income |
-| Home Appreciation | Expected annual appreciation % |
-| Selling Fees | Realtor + closing costs % |
-| Capital Gains Tax | Tax rate on profits above basis |
-| Investment Return | Expected return if you invest sale proceeds |
-| Years to Hold | How many years to analyze |
+| Interest Rate | Annual mortgage interest rate |
+| Mortgage Term | 15, 20, or 30 years |
 | Primary Residence | Have you lived here 2 of last 5 years? |
+| Years to Hold | How many years to analyze |
+| HOA | Monthly homeowners association fee |
+| Property Taxes | Monthly property taxes |
+| Home Insurance | Monthly insurance premium |
+| Maintenance Reserve | Monthly reserve for repairs |
+| Monthly Rent | Expected rental income |
+| Annual Rent Increase | Expected yearly rent growth % |
+| Property Mgmt Fee | % of rent for property manager |
+| Tax Rate on Income | Your marginal tax rate on rental profit |
+| Home Appreciation | Expected annual home value increase % |
+| Cost Inflation | Annual increase in taxes, insurance, HOA, maintenance % |
+| Selling Fees | Realtor + closing costs % |
+| Capital Gains Tax Rate | Tax on profits above basis |
+| Investment Return | Expected return if you invest sale proceeds |
 
 ## How It Works
 
-### Rent Scenario
-- Calculates annual rental income with appreciation
-- Subtracts all costs (PITI, HOA, maintenance, property management)
-- Applies tax on positive rental profit
-- Tracks cumulative cash flow and equity growth
+### Rent Scenario ("Rent Now + Sell Later")
+- Calculates annual rental income with year-over-year growth
+- Subtracts all ownership costs (P&I, taxes, insurance, HOA, maintenance, management)
+- Applies cost inflation to non-fixed expenses
+- Taxes positive rental profit at your specified rate
+- Tracks cumulative cash flow over the holding period
 
-### Sell Scenario
-- Calculates sale proceeds after fees
-- Applies capital gains tax (with primary residence exemption)
-- Projects invested value of proceeds over time
+### Sell Scenario ("Sell Now + Invest Proceeds")
+- Calculates Year 0 net proceeds after fees and capital gains tax
+- Projects that lump sum invested at your expected return rate
+- If Year 0 proceeds are negative (underwater), no growth is applied
 
 ### Comparison
-The tool shows which option gives you more net worth at each year:
-- **Rent Net Worth** = Home Equity + Cumulative Cash Flow
-- **Sell Net Worth** = Sale Proceeds invested at expected return rate
+The chart and table show both scenarios side by side:
+- **Rent Net Worth** = Net After-Tax Sale Proceeds (at that year) + Cumulative Rental Cash Flow
+- **Sell Net Worth** = Year 0 Net Proceeds × (1 + Return Rate)^Year
 
 ## Files
 
-- `index.html` - Main application
-- `styles.css` - Styling
-- `calculator.js` - All calculation logic
-- `dev-status.md` - Developer context and architectural decisions
+- `index.html` — Main application
+- `styles.css` — Styling (including responsive breakpoints)
+- `calculator.js` — All calculation logic and UI updates

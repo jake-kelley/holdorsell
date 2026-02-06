@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net;" />
     <title>Rent vs Sell Calculator</title>
     <link rel="stylesheet" href="styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1"
@@ -16,6 +16,8 @@
         This calculator requires JavaScript to function. Please enable JavaScript in your browser.
       </p>
     </noscript>
+    <!-- Mobile tooltip display (shown on input focus) -->
+    <div id="mobileTooltip" class="mobile-tooltip" aria-live="polite" aria-atomic="true"></div>
     <div class="container">
       <h1>🏠 Rent vs Sell Calculator</h1>
       <p class="subtitle">

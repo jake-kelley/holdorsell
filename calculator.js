@@ -2,6 +2,22 @@
  * Rent vs Sell Calculator
  * All calculations are done client-side for instant updates
  */
+(function() {
+"use strict";
+
+/**
+ * Simple debounce utility to prevent excessive recalculations
+ * @param {Function} fn - Function to debounce
+ * @param {number} delay - Delay in milliseconds
+ * @returns {Function} Debounced function
+ */
+function debounce(fn, delay) {
+  let timeoutId;
+  return function (...args) {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
 
 // DOM Elements
 const inputs = {
@@ -22,6 +38,7 @@ const inputs = {
   propertyMgmtFee: document.getElementById("propertyMgmtFee"),
   rentalTaxRate: document.getElementById("rentalTaxRate"),
   homeAppreciation: document.getElementById("homeAppreciation"),
+  costInflation: document.getElementById("costInflation"),
   sellingFees: document.getElementById("sellingFees"),
   capitalGainsTax: document.getElementById("capitalGainsTax"),
   investmentReturn: document.getElementById("investmentReturn"),
@@ -29,6 +46,7 @@ const inputs = {
 };
 
 let chart = null;
+let currentYearlyData = null; // Store current data for tooltip access
 
 /**
  * Calculate monthly P&I payment using standard mortgage formula
@@ -58,11 +76,19 @@ function updateMonthlyPaymentDisplay() {
   return monthlyPayment;
 }
 
+// Debounced calculate function (100ms delay prevents excessive recalcs during typing)
+const debouncedCalculate = debounce(calculate, 100);
+
 // Add event listeners to all inputs
+// Use 'input' for text/number fields (fires on each keystroke)
+// Use 'change' for select fields (fires on selection)
 Object.values(inputs).forEach((input) => {
   if (input && input.id !== 'monthlyPI') { // Skip the calculated field
-    input.addEventListener("input", calculate);
-    input.addEventListener("change", calculate);
+    if (input.tagName === 'SELECT') {
+      input.addEventListener("change", calculate); // Immediate for selects
+    } else {
+      input.addEventListener("input", debouncedCalculate); // Debounced for text/number
+    }
   }
 });
 
@@ -163,6 +189,7 @@ function validateInputs() {
   clampInput(inputs.propertyMgmtFee, 0, 100);
   clampInput(inputs.rentalTaxRate, 0, 100);
   clampInput(inputs.homeAppreciation, -20, 30);
+  clampInput(inputs.costInflation, 0, 20);
   clampInput(inputs.sellingFees, 0, 100);
   clampInput(inputs.capitalGainsTax, 0, 100);
   clampInput(inputs.investmentReturn, -50, 50);
@@ -202,6 +229,7 @@ function calculate() {
   const propertyMgmtFee = parseFloat(inputs.propertyMgmtFee.value) || 0;
   const rentalTaxRate = parseFloat(inputs.rentalTaxRate.value) || 0;
   const homeAppreciation = parseFloat(inputs.homeAppreciation.value) || 0;
+  const costInflation = parseFloat(inputs.costInflation.value) || 0;
   const sellingFees = parseFloat(inputs.sellingFees.value) || 0;
   const capitalGainsTax = parseFloat(inputs.capitalGainsTax.value) || 0;
   const investmentReturn = parseFloat(inputs.investmentReturn.value) || 0;
@@ -213,17 +241,14 @@ function calculate() {
   const totalLoanMonths = mortgageTerm * 12; // Use selected mortgage term
   const monthsElapsed = getMonthsElapsed(loanOriginDate);
 
-  // Monthly PITI + HOA (total monthly ownership cost)
-  const monthlyPITI = monthlyPI + monthlyTaxes + monthlyInsurance;
-  const monthlyOwnershipCost = monthlyPITI + monthlyHOA + monthlyMaintenance;
+  // Monthly PITI (P&I is fixed, but taxes/insurance inflate over time)
+  // We'll calculate year-specific costs in the loop
 
-  // Results storage
+// Results storage
   const yearlyData = [];
 
   // Cumulative tracking for rental scenario
-  let cumulativeRentalCashFlow = 0; // Startup costs handled in Year 0 loop
-  let cumulativeInvestedCashFlow = 0; // Tracks growth of cash flows (time value of money)
-  let cumulativeOpportunityCost = 0;
+  let cumulativeRentalCashFlow = 0;
 
   // Calculate for each year
   let sellYear0Baseline = 0;
@@ -257,7 +282,14 @@ function calculate() {
     // Property management fee
     const annualMgmtFee = annualRentalIncome * (propertyMgmtFee / 100);
 
-    // Annual expenses (PITI + HOA + maintenance)
+    // Annual expenses with inflation applied to non-fixed costs
+    // P&I payment is fixed, but taxes, insurance, HOA, and maintenance inflate
+    const inflationFactor = Math.pow(1 + costInflation / 100, year);
+    const inflatedTaxes = monthlyTaxes * inflationFactor;
+    const inflatedInsurance = monthlyInsurance * inflationFactor;
+    const inflatedHOA = monthlyHOA * inflationFactor;
+    const inflatedMaintenance = monthlyMaintenance * inflationFactor;
+    const monthlyOwnershipCost = monthlyPI + inflatedTaxes + inflatedInsurance + inflatedHOA + inflatedMaintenance;
     const annualOwnershipCosts = monthlyOwnershipCost * 12;
 
     // Gross rental profit before tax
@@ -273,79 +305,42 @@ function calculate() {
 
     // For year 0, as per user request, we do not count any cash flow 
     // because that is the starting point/decision point
-    let yearCashFlow = year === 0 ? 0 : netRentalCashFlow;
-
-    // Calculate principal paid this year (equity building through mortgage paydown)
-    let principalPaidThisYear = 0;
-    if (year > 0) {
-      const prevBalance = calculateRemainingBalance(
-        originalLoanAmount,
-        monthlyRate,
-        totalLoanMonths,
-        futureMonthsElapsed - 12,
-      );
-      principalPaidThisYear = prevBalance - loanBalance;
-    }
+    const yearCashFlow = year === 0 ? 0 : netRentalCashFlow;
 
     // Update cumulative cash flow (add this year's total cash flow)
     cumulativeRentalCashFlow += yearCashFlow;
 
-    // Opportunity cost: if monthly cash flow is negative, that's money we're losing
-    // that could have been invested elsewhere
-    // Rental Cash Flow Invested Calculation (Accumulated Value method)
-    // As per user request: Show the value as it grows.
-    // Logic: Previous Total * (1 + rate) + Current Year Absolute Cash Flow.
-    
-    // 1. Grow the existing pot from previous years
-    if (year > 0) {
-        cumulativeOpportunityCost = cumulativeOpportunityCost * (1 + investmentReturn / 100);
-    }
-    
-    // 2. Add this year's contribution (Absolute value of cash flow, whether loss or profit)
-    // We assume this is added at the end of the year, so it doesn't grow THIS year.
-    const yearInvestedValue = Math.abs(yearCashFlow);
-    cumulativeOpportunityCost += yearInvestedValue;
-
-    // Track "Invested Cash Flow" - what our cash pile would be if we invested all net cash flows
-    // (both positive and negative) at the investment return rate.
-    // This allows Fair comparison to Sell Scenario which assumes investment of proceeds.
-    if (year > 0) {
-      cumulativeInvestedCashFlow = cumulativeInvestedCashFlow * (1 + investmentReturn / 100);
-    }
-    cumulativeInvestedCashFlow += yearCashFlow;
-
     // --- SALE SCENARIO ---
-    // Home value at time of sale
-    const salePrice = homeValue;
-
     // Selling costs (Removed prep costs per user request)
-    const sellingCosts = salePrice * (sellingFees / 100);
+    const sellingCosts = homeValue * (sellingFees / 100);
 
     // Net proceeds before capital gains
-    const netSaleProceeds = salePrice - loanBalance - sellingCosts;
+    const netSaleProceeds = homeValue - loanBalance - sellingCosts;
 
     // Capital gains calculation
-    const capitalGain = salePrice - purchasePrice; // Simplified: not accounting for improvements
+    const capitalGain = homeValue - purchasePrice; // Simplified: not accounting for improvements
 
-    // Capital gains tax exemption for primary residence (2 of 5 years)
-    // If primary residence and within 3 years of holding (still qualify), exempt up to $500k
-    // Capital gains tax exemption based on user specific rules:
-    // 1. If underwater (Home Value - Loan - Fees < 0), no gain to tax (simplified assumption, really it's based on basis but this proxies "no cash to pay")
-    // 2. OR If Primary Residence AND owned <= 3 years (Exclusion applies)
-    // 3. Otherwise, tax the full gain.
+    // Capital gains tax exemption for primary residence (IRS Section 121)
+    // - Must have lived in home 2 of last 5 years to qualify
+    // - Exemption is $250k single / $500k married filing jointly
+    // - We use year <= 3 as proxy for "still qualifies" and assume MFJ ($500k cap)
     let capitalGainsTaxOwed = 0;
     
     // Check if underwater on the sale transaction itself
-    const isUnderwater = netSaleProceeds < 0; // proceeds = Sale - Loan - Fees
+    const isUnderwater = netSaleProceeds < 0;
+    // IRS exemption cap (assumes married filing jointly)
+    const PRIMARY_RESIDENCE_EXEMPTION_CAP = 500000;
 
     if (capitalGain > 0) {
       if (isUnderwater) {
-         capitalGainsTaxOwed = 0;
-      } else if (isPrimaryResidence && year <= 3) {
-        // Exempt (Primary Residence Exclusion assumption for short hold)
+        // No cash to pay taxes, simplified assumption
         capitalGainsTaxOwed = 0;
+      } else if (isPrimaryResidence && year <= 3) {
+        // Primary Residence Exclusion applies, but only up to the cap
+        const taxableGain = Math.max(0, capitalGain - PRIMARY_RESIDENCE_EXEMPTION_CAP);
+        capitalGainsTaxOwed = taxableGain * (capitalGainsTax / 100);
       } else {
-        // Full capital gains tax
+        // No exemption - tax the full gain
         capitalGainsTaxOwed = capitalGain * (capitalGainsTax / 100);
       }
     }
@@ -371,15 +366,7 @@ function calculate() {
         ? sellYear0Baseline * Math.pow(1 + investmentReturn / 100, year) 
         : sellYear0Baseline;
 
-    // Total rental scenario net worth at this year:
-    // Net Proceeds (liquidatable equity) + Invested Value of Cash Flows (which tracks opportunity cost of losses)
-    // Updated per user request to use Net Proceeds instead of Equity
-    const rentalNetWorth = netAfterTaxProceeds + cumulativeInvestedCashFlow;
-
     // Simple Net Worth (Net Proceeds + Actual Cash Flow) - requested by user for table
-    // Also use Net Proceeds here to be consistent (Liquidatable Value)
-    // Simple Net Worth (Net Proceeds + Actual Cash Flow) - requested by user for table
-    // Also use Net Proceeds here to be consistent (Liquidatable Value)
     // User Update (Feb 2026): If Year 0 and we have positive proceeds, show $0 (don't show the cash out value).
     // If Year 0 and negative (underwater), show the negative value.
     let simpleRentalNetWorth = netAfterTaxProceeds + cumulativeRentalCashFlow;
@@ -394,36 +381,23 @@ function calculate() {
     // Also need to account for positive rental cash flow that could have been invested
     // if you chose to rent for these years first then sell
 
-    // Store year data
+    // Store year data (only properties used by live UI code)
     yearlyData.push({
       year,
       homeValue,
       loanBalance,
       equity,
       // Rental scenario
-      annualRent: year === 0 ? 0 : currentRent * 12,
-      annualExpenses: year === 0 ? 0 : annualOwnershipCosts + annualMgmtFee,
-      grossRentalProfit: year === 0 ? 0 : grossRentalProfit,
-      rentalTax: year === 0 ? 0 : rentalTax,
       netRentalCashFlow: yearCashFlow,
       cumulativeRentalCashFlow: year === 0 ? 0 : cumulativeRentalCashFlow,
-      cumulativeInvestedCashFlow: year === 0 ? 0 : cumulativeInvestedCashFlow,
-      principalPaidThisYear,
-      opportunityCost: year === 0 ? 0 : yearInvestedValue,
-      cumulativeOpportunityCost: year === 0 ? 0 : cumulativeOpportunityCost,
-      rentalNetWorth,
       simpleRentalNetWorth,
       // Sale scenario
-      salePrice,
       sellingCosts,
-      netSaleProceeds,
-      capitalGain,
       capitalGainsTaxOwed,
       netAfterTaxProceeds,
-      investedValue: year === 0 ? 0 : investedValue,
       sellYear0Total, // For chart
       // Comparison
-      betterOption: rentalNetWorth > investedValue ? "rent" : "sell",
+      betterOption: simpleRentalNetWorth > sellYear0Total ? "rent" : "sell",
       monthlyBreakdown: {
         rent: year === 0 ? 0 : currentRent,
         expenses: year === 0 ? 0 : monthlyOwnershipCost + (annualMgmtFee / 12)
@@ -435,7 +409,6 @@ function calculate() {
   updateChart(yearlyData);
   updateTable(yearlyData);
   updateSummary(yearlyData);
-  // updateDetailedBreakdown(yearlyData); // Removed from UI
 
   // Persist current inputs to URL
   saveToURL();
@@ -443,18 +416,27 @@ function calculate() {
 
 /**
  * Update the comparison chart
+ * Uses chart.update() for efficiency instead of destroy/recreate
  */
 function updateChart(data) {
-  const ctx = document.getElementById("comparisonChart").getContext("2d");
-
+  // Store data for tooltip access (closure won't have stale data)
+  currentYearlyData = data;
+  
   const labels = data.map((d) => `Year ${d.year}`);
   const rentalData = data.map((d) => d.simpleRentalNetWorth);
   const saleData = data.map((d) => d.sellYear0Total);
 
+  // If chart exists, just update the data
   if (chart) {
-    chart.destroy();
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = rentalData;
+    chart.data.datasets[1].data = saleData;
+    chart.update('none'); // 'none' disables animations for faster updates
+    return;
   }
 
+  // Create chart on first run
+  const ctx = document.getElementById("comparisonChart").getContext("2d");
   chart = new Chart(ctx, {
     type: "line",
     data: {
@@ -481,6 +463,7 @@ function updateChart(data) {
     options: {
       responsive: true,
       maintainAspectRatio: true,
+      animation: false, // Disable animations for faster updates
       plugins: {
         legend: {
           labels: {
@@ -501,9 +484,9 @@ function updateChart(data) {
               }
               
               // Add monthly breakdown for the Rent scenario
-              if (context.datasetIndex === 0) { // Rent Line
+              if (context.datasetIndex === 0 && currentYearlyData) { // Rent Line
                 const yearIndex = context.dataIndex;
-                const dataPoint = data[yearIndex];
+                const dataPoint = currentYearlyData[yearIndex];
                 if (dataPoint && dataPoint.monthlyBreakdown) {
                   const rent = formatCurrency(dataPoint.monthlyBreakdown.rent);
                   const exp = formatCurrency(dataPoint.monthlyBreakdown.expenses);
@@ -539,7 +522,17 @@ function updateChart(data) {
 }
 
 /**
- * Update the results table
+ * Helper to create a table cell with text content and optional class
+ */
+function createCell(text, className) {
+  const td = document.createElement("td");
+  td.textContent = text;
+  if (className) td.className = className;
+  return td;
+}
+
+/**
+ * Update the results table using DOM API (safer than innerHTML)
  */
 function updateTable(data) {
   const tbody = document.querySelector("#resultsTable tbody");
@@ -549,19 +542,24 @@ function updateTable(data) {
     const row = document.createElement("tr");
     row.className = d.betterOption === "rent" ? "rent-better" : "sell-better";
 
-    row.innerHTML = `
-            <td><strong>Year ${d.year}</strong></td>
-            <td>${formatCurrency(d.homeValue)}</td>
-            <td>${formatCurrency(d.loanBalance)}</td>
-            <td>${formatCurrency(d.equity)}</td>
-            <td>${formatCurrency(d.sellingCosts)}</td>
-            <td>${formatCurrency(d.capitalGainsTaxOwed)}</td>
-            <td class="${d.netAfterTaxProceeds >= 0 ? "positive" : "negative"}">${formatCurrency(d.netAfterTaxProceeds)}</td>
-            <td class="${d.netRentalCashFlow >= 0 ? "positive" : "negative"}">${formatCurrency(d.netRentalCashFlow)}</td>
-            <td class="${d.cumulativeRentalCashFlow >= 0 ? "positive" : "negative"}">${formatCurrency(d.cumulativeRentalCashFlow)}</td>
-            <td class="${d.simpleRentalNetWorth >= 0 ? "positive" : "negative"}">${formatCurrency(d.simpleRentalNetWorth)}</td>
-            <td class="${d.sellYear0Total >= 0 ? "positive" : "negative"}">${formatCurrency(d.sellYear0Total)}</td>
-        `;
+    // Year column with bold text
+    const yearCell = document.createElement("td");
+    const strong = document.createElement("strong");
+    strong.textContent = `Year ${d.year}`;
+    yearCell.appendChild(strong);
+    row.appendChild(yearCell);
+
+    // Data columns
+    row.appendChild(createCell(formatCurrency(d.homeValue)));
+    row.appendChild(createCell(formatCurrency(d.loanBalance)));
+    row.appendChild(createCell(formatCurrency(d.equity)));
+    row.appendChild(createCell(formatCurrency(d.sellingCosts)));
+    row.appendChild(createCell(formatCurrency(d.capitalGainsTaxOwed)));
+    row.appendChild(createCell(formatCurrency(d.netAfterTaxProceeds), d.netAfterTaxProceeds >= 0 ? "positive" : "negative"));
+    row.appendChild(createCell(formatCurrency(d.netRentalCashFlow), d.netRentalCashFlow >= 0 ? "positive" : "negative"));
+    row.appendChild(createCell(formatCurrency(d.cumulativeRentalCashFlow), d.cumulativeRentalCashFlow >= 0 ? "positive" : "negative"));
+    row.appendChild(createCell(formatCurrency(d.simpleRentalNetWorth), d.simpleRentalNetWorth >= 0 ? "positive" : "negative"));
+    row.appendChild(createCell(formatCurrency(d.sellYear0Total), d.sellYear0Total >= 0 ? "positive" : "negative"));
 
     tbody.appendChild(row);
   });
@@ -597,7 +595,6 @@ function updateSummary(data) {
   }
 
   const summary = document.getElementById("summary");
-  const summaryInline = document.getElementById("summaryInline");
   
   const summaryHTML = `
         <h3>📊 Summary at Year ${finalYear.year}</h3>
@@ -632,63 +629,6 @@ function updateSummary(data) {
     `;
   
   summary.innerHTML = summaryHTML;
-  if (summaryInline) {
-    summaryInline.innerHTML = summaryHTML;
-  }
-}
-
-/**
- * Update detailed breakdown
- */
-function updateDetailedBreakdown(data) {
-  const container = document.getElementById("detailedBreakdown");
-  container.innerHTML = "";
-
-  data.forEach((d) => {
-    const detail = document.createElement("div");
-    detail.className = "year-detail";
-
-    detail.innerHTML = `
-            <h4>Year ${d.year}</h4>
-            <div class="detail-grid">
-                <div class="detail-section">
-                    <h5>Property</h5>
-                    <p>Home Value: ${formatCurrency(d.homeValue)}</p>
-                    <p>Loan Balance: ${formatCurrency(d.loanBalance)}</p>
-                    <p>Equity: ${formatCurrency(d.equity)}</p>
-                    <p>Principal Paid This Year: ${formatCurrency(d.principalPaidThisYear)}</p>
-                </div>
-                <div class="detail-section">
-                    <h5>Rental Scenario</h5>
-                    <p>Annual Rent: ${formatCurrency(d.annualRent)}</p>
-                    <p>Annual Expenses: ${formatCurrency(d.annualExpenses)}</p>
-                    <p>Gross Profit: ${formatCurrency(d.grossRentalProfit)}</p>
-                    <p>Tax on Rental Income: ${formatCurrency(d.rentalTax)}</p>
-                    <p>Net Cash Flow (this year): ${formatCurrency(d.netRentalCashFlow)}</p>
-                    <p><strong>Cumulative Cash Flow: ${formatCurrency(d.cumulativeRentalCashFlow)}</strong></p>
-                </div>
-                <div class="detail-section">
-                    <h5>Sale Scenario</h5>
-                    <p>Sale Price: ${formatCurrency(d.salePrice)}</p>
-                    <p>Selling Costs: ${formatCurrency(d.sellingCosts)}</p>
-                    <p>Net Proceeds (before tax): ${formatCurrency(d.netSaleProceeds)}</p>
-                    <p>Capital Gain: ${formatCurrency(d.capitalGain)}</p>
-                    <p>Capital Gains Tax: ${formatCurrency(d.capitalGainsTaxOwed)}</p>
-                    <p><strong>Net After Tax: ${formatCurrency(d.netAfterTaxProceeds)}</strong></p>
-                    <p><strong>Invested Value at End: ${formatCurrency(d.investedValue)}</strong></p>
-                </div>
-                <div class="detail-section">
-                    <h5>Comparison</h5>
-                    <p>Rent Net Worth: ${formatCurrency(d.rentalNetWorth)}</p>
-                    <p>Sell Net Worth: ${formatCurrency(d.investedValue)}</p>
-                    <p>Opportunity Cost (cumulative): ${formatCurrency(d.cumulativeOpportunityCost)}</p>
-                    <p><strong>Better: ${d.betterOption === "rent" ? "🏠 Rent" : "💰 Sell"}</strong></p>
-                </div>
-            </div>
-        `;
-
-    container.appendChild(detail);
-  });
 }
 
 /**
@@ -727,3 +667,5 @@ function loadFromURL() {
 // Load saved state from URL, then run initial calculation
 loadFromURL();
 calculate();
+
+})(); // End IIFE
